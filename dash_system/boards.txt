@@ -1,0 +1,40 @@
+#
+#  boards.txt - Arduino board definitions for Dash System
+#
+#  https://hologram.io
+#
+#  Copyright (c) 2017 Konekt, Inc.  All rights reserved.
+#
+#  This library is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU Lesser General Public
+#  License as published by the Free Software Foundation; either
+#  version 2.1 of the License, or (at your option) any later version.
+#
+#  This library is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#  Lesser General Public License for more details.
+#
+#  You should have received a copy of the GNU Lesser General Public
+#  License along with this library; if not, write to the Free Software
+#  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+#
+menu.cpu_speed=CPU Speed
+
+dash_system.menu.cpu_speed.speed48=48MHz
+dash_system.menu.cpu_speed.speed4=4MHz
+dash_system.name=Dash System
+dash_system.build.mcu=cortex-m0plus
+dash_system.build.f_cpu=48000000L
+dash_system.build.board=DASH_SYSTEM
+dash_system.build.core=arduino
+dash_system.build.variant=dash_system
+dash_system.build.extra_flags=-DFSL_OSA_BM_TIMER_CONFIG=2 -DCPU_MKL17Z256VFM4 -DNDEBUG
+dash_system.build.ldscript=dash_system.ld
+dash_system.build.variant_system_lib=
+dash_system.compiler.c.elf.extra_flags=
+dash_system.upload.tool=holosysloaderusb
+dash_system.upload.maximum_size=237244
+dash_system.menu.cpu_speed.speed48.build.clock_setup=-DCLOCK_SETUP=0
+dash_system.menu.cpu_speed.speed4.build.clock_setup=-DCLOCK_SETUP=1
+
