@@ -36,6 +36,8 @@ public:
     static bool convertToUTC(rtc_datetime_t &dest, const timestamp_tz &source);
     bool convertToLocalTime(rtc_datetime_t &dest, const timestamp_tz &source);
 
+    bool checkOTA(int index, sms_event &ota_sms);
+
 protected:
     virtual const char* getID();
     virtual const char* getKey();

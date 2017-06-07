@@ -29,6 +29,7 @@
 void UBlox::init(NetworkEventHandler &handler, Modem &m) {
     Network::init(handler);
     modem = &m;
+    networkTimeValid = false;
     connectStatus = UBLOX_CONN_DISCONNECTED;
     for(int i=0; i<UBLOX_SOCKET_COUNT; i++) {
         sockets[i].bytes_available = 0;
@@ -50,7 +51,7 @@ void UBlox::init(NetworkEventHandler &handler, Modem &m) {
             break;
         }
     }
-    loadNumSMS();
+    getNumSMS();
 }
 
 void UBlox::powerUp() {
@@ -59,6 +60,7 @@ void UBlox::powerUp() {
 
 void UBlox::powerDown() {
     modemReady = false;
+    networkTimeValid = false;
     if(modem->command("", 200) == MODEM_OK) {
         if(modem->command("+CPWROFF", 40000) == MODEM_OK) {
             //return;
@@ -92,6 +94,7 @@ bool UBlox::initModem(int delay_seconds) {
     while(modem->command("", delay_seconds*50, 20) != MODEM_OK) {
         debugln("+DEBUG: Modem not responding. Restarting...");
         modemReady = false;
+        networkTimeValid = false;
         holdReset();
         wait(100);
         toggleReset();
@@ -271,6 +274,12 @@ uint8_t UBlox::convertField(const char* field) {
     return atoi(local);
 }
 
+bool UBlox::isNetworkTimeAvailable() {
+    if(networkTimeValid) return true;
+    timestamp_tz ts;
+    return getNetworkTime(ts);
+}
+
 bool UBlox::getNetworkTime(timestamp_tz& ts) {
     if(modem->query("+CCLK") != MODEM_OK) {
         return false;
@@ -293,35 +302,45 @@ bool UBlox::getNetworkTime(timestamp_tz& ts) {
         if(getSignalStrength() == 99)
             return false;
     }
+    networkTimeValid = true;
     return true;
 }
 
-void UBlox::loadNumSMS() {
+int UBlox::getNumSMS() {
     num_sms = 0;
-    pollEvents();
-    modem->command("+CMGL");
-    num_sms = modem->numResponses();
+    slots_sms = 0;
+    if(modem->query("+CPMS") == MODEM_OK) {
+        int inuse, slots;
+        if(sscanf(modem->lastResponse(), "+CPMS: \"ME\",%d,%d", &inuse, &slots) == 2) {
+            num_sms = inuse;
+            slots_sms = slots;
+        }
+    }
+    return num_sms;
 }
 
-int UBlox::getNumSMS() {
-    return num_sms;
+int UBlox::getSlotsSMS() {
+    if(slots_sms == 0) {
+        getNumSMS();
+    }
+    return slots_sms;
 }
 
 bool UBlox::deleteSMS(int location) {
     modem->startSet("+CMGD");
     modem->appendSet(location);
-    bool deleted = (modem->completeSet() == MODEM_OK);
-    if(deleted) {
-        num_sms--;
-    }
-    return deleted;
+    return (modem->completeSet() == MODEM_OK);
 }
 
 bool UBlox::readSMS(int location, sms_event &smsread) {
     modem->startSet("+CMGR");
     modem->appendSet(location);
     if(modem->completeSet() == MODEM_OK) {
-        return parse_sms_pdu(modem->lastResponse(), smsread);
+        if(parse_sms_pdu(modem->lastResponse(), smsread)) {
+            return true;
+        } else {
+            deleteSMS(location);
+        }
     }
     return false;
 }
@@ -413,11 +432,15 @@ uint8_t UBlox::invertHex(const char *hex) {
 bool UBlox::parse_sms_pdu(const char* fullpdu, sms_event &parsed_sms) {
     const char* p = fullpdu;
     int smsc_len = Modem::convertHex(p);        //SMSC Length
-    p += 2 + (smsc_len*2);                      //SMSC Content
-    if(strncmp(p, "04", 2) != 0) return false;  //SMS-DELIVER
+    p += 2;                                     //SMCS Number Type
+    if((p[0] != '8' && p[0] !='9') || p[1] != '1') return false;
+    p += (smsc_len*2);                          //SMSC Content
+    if(p[1] & 0x3 != 0) return false;           //SMS-DELIVER
     p += 2;
     int sender_len = Modem::convertHex(p);      //Sender length
-    p += 4;                                     //skip Address type
+    p += 2;                                     //Sender Number Type
+    if((p[0] != '8' && p[0] !='9') || p[1] != '1') return false;
+    p += 2;
     int sender_read = sender_len;
     if(sender_read & 1) sender_read++;
     char *smsdst = parsed_sms.sender;
@@ -450,62 +473,6 @@ bool UBlox::parse_sms_pdu(const char* fullpdu, sms_event &parsed_sms) {
     return true;
 }
 
-bool UBlox::parse_sms_pdu(int to_read) {
-    int smsc_len = 0;
-    int sender_len = 0;
-    int sender_read = 0;
-    int msg_len = 0;
-
-    to_read *= 2;
-    modem->rawRead(2, pdu);                 //SMSC Length
-    if(sscanf(pdu, "%x", &smsc_len) != 1) return false;
-    modem->rawRead(smsc_len*2, pdu);  //SMSC Content
-    modem->rawRead(2, pdu);       //SMS-DELIVER
-    if(strcmp(pdu, "04") != 0) return 6;
-    modem->rawRead(2, pdu);       //Sender length
-    if(sscanf(pdu, "%x", &sender_len) != 1) return false;              //Sender length (nibble-chars)
-    modem->rawRead(2, pdu);       //Address type
-    sender_read = sender_len;
-    if(sender_read & 1) sender_read++;
-    modem->rawRead(sender_read, pdu);
-
-    //convert sender PDU into chars. Must nibble flip
-    char *smsdst = sms.sender;
-    for(int i=0; i<sender_read; i+=2) {
-        rev_octet(smsdst, &pdu[i]);
-    }
-    sms.sender[sender_len] = 0;
-
-    modem->rawRead(4, pdu);      //protocol/encoding
-    if(strcmp(pdu, "0000") != 0) return false;
-
-    modem->rawRead(14, pdu);     //timestamp
-    sms.timestamp.year = invertDecimal(&pdu[0]);
-    sms.timestamp.month = invertDecimal(&pdu[2]);
-    sms.timestamp.day = invertDecimal(&pdu[4]);
-    sms.timestamp.hour = invertDecimal(&pdu[6]);
-    sms.timestamp.minute = invertDecimal(&pdu[8]);
-    sms.timestamp.second = invertDecimal(&pdu[10]);
-    uint8_t tz = invertHex(&pdu[12]);
-    if(tz & 0x80 != 0) {
-        tz &= 0x7F;
-        sms.timestamp.tzquarter = (uint8_t)tz;
-        sms.timestamp.tzquarter *= -1;
-    } else {
-        sms.timestamp.tzquarter = (uint8_t)tz;
-    }
-
-    modem->rawRead(2, pdu);       //Message Length (7-bit chars)
-    if(sscanf(pdu, "%x", &msg_len) != 1) return false;
-    to_read -= (6 + sender_read + 4 + 14 + 2);
-    modem->rawRead(to_read, pdu);
-    //Convert 7-bit to chars
-    convert7to8bit(sms.message, pdu, msg_len);
-
-    eventHandler->onNetworkEvent(UBLOX_EVENT_SMS_RECEIVED, &sms);
-    return true;
-}
-
 void UBlox::onURC(const char* urc) {
     if(startswith(urc, "+UUSORD: ")) {
         int sock, len;
@@ -521,16 +488,10 @@ void UBlox::onURC(const char* urc) {
             //TODO: handle LISTEN vs ACTIVE?
             sockets[sock].bytes_available = 0;
         }
-    // } else if(startswith(urc, "+CMT: ")) {
-    //     int to_read=0;
-    //     if(sscanf(urc, "+CMT: ,%d", &to_read) == 1) {
-    //         parse_sms_pdu(to_read);
-    //     }
     } else if(startswith(urc, "+CMTI: ")) {
         int addr=0;
         char mem[8];
         if(sscanf(urc, "+CMTI: \"%[^\"]\",%d", mem, &addr) == 2) {
-            num_sms++;
             eventHandler->onNetworkEvent(UBLOX_EVENT_SMS_RECEIVED, &addr);
         }
     } else if(startswith(urc, "+UMWI: ")) {

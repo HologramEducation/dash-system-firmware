@@ -48,11 +48,10 @@ const char* ipc_topic_list[] =
  &ipc_topics[8][0], &ipc_topics[9][0]};
 
 int getOldestSMS(sms_event &oldest) {
-//  uint32_t numsms = ublox.getNumSMS();
   if(ublox.getNumSMS() == 0) return 0;
 
   int index_oldest = 0;
-  for(int i=1; i<=310; i++) {
+  for(int i=1; i<=ublox.getSlotsSMS(); i++) {
     if(ublox.readSMS(i, oldest)) {
       index_oldest = i;
 //      Serial.print("+DEBUG: found oldest ");
@@ -72,7 +71,7 @@ int getOldestSMS(sms_event &oldest) {
   static sms_event current;
   uint32_t seconds_oldest = Cloud.getSecondsUTC(oldest.timestamp);
 
-  for(int i=index_oldest+1; i<=310 && numcomp < numsms; i++) {
+  for(int i=index_oldest+1; i<=ublox.getSlotsSMS() && numcomp < numsms; i++) {
     if(ublox.readSMS(i, current)) {
       numcomp++;
       uint32_t seconds_current = Cloud.getSecondsUTC(current.timestamp);
@@ -99,23 +98,30 @@ int getOldestSMS(sms_event &oldest) {
 }
 
 void sendNextSMS() {
+  rtc_datetime_t sms_dt;
+  
   int index = getOldestSMS(sms);
   if(index > 0) {
     OK();
-    ublox.deleteSMS(index);
-    rtc_datetime_t sms_dt;
-    Cloud.convertToLocalTime(sms_dt, sms.timestamp);
+    if(Cloud.checkOTA(index, sms)) {
+      return;
+    }
 
-    Serial.print("+HSMSCTX: \"+");
-    Serial.print(sms.sender);
-    Serial.print("\",\"");
-    Serial.print(sms_dt);
-    Serial.print("\",");
-    Serial.println(strlen(sms.message));
-    Serial.println(sms.message);
-  } else {
-    ERROR();
+    if(Cloud.convertToLocalTime(sms_dt, sms.timestamp)) {
+      ublox.deleteSMS(index);
+  
+      Serial.print("+HSMSCTX: \"+");
+      Serial.print(sms.sender);
+      Serial.print("\",\"");
+      Serial.print(sms_dt);
+      Serial.print("\",");
+      Serial.println(strlen(sms.message));
+      Serial.println(sms.message);
+      return;
+    }
   }
+  
+  ERROR();
 }
 
 void handle_event(ublox_event_id id, const ublox_event_content *content) {
@@ -199,7 +205,7 @@ void processQuery(const char* query) {
   if(strcmp(query, "+HOLO")==0) {
     respond(query, HOLO_REV);
   } else if(strcmp(query, "+HSMS")==0) {
-    respond(query, ublox.getNumSMS());
+    respond(query, ublox.isNetworkTimeAvailable() ? ublox.getNumSMS() : 0);
   } else {
     modem_result r = modem.query(query);
     if(r == MODEM_OK) {

@@ -114,6 +114,7 @@ public:
     bool deleteSMS(int location);
     bool readSMS(int location, sms_event &smsread);
     int getNumSMS();
+    int getSlotsSMS();
 
     void pollEvents();
 
@@ -130,6 +131,7 @@ public:
 
     int getIMSI(char *id);
     int getICCID(char *id);
+    bool isNetworkTimeAvailable();
     bool getNetworkTime(timestamp_tz& ts);
     bool httpGet(const char* url, int port, const char* response, const char* user, const char* pass);
 
@@ -158,8 +160,6 @@ protected:
     virtual void debug(int i){}
     virtual void debugln(int i){}
 
-    void loadNumSMS();
-
     bool checkConnected(int delay_seconds=1);
     bool initModem(int delay_seconds=1);
     bool startswith(const char* a, const char* b);
@@ -176,7 +176,6 @@ protected:
     char gsm7toascii(char c);
     void convert7to8bit(char* dst, const char* src, int num_chars);
     bool parse_sms_pdu(const char* fullpdu, sms_event &parsed_sms);
-    bool parse_sms_pdu(int to_read);
 
     bool uhttp(int profile, int opcode, const char* value);
     bool uhttp(int profile, int opcode, int value);
@@ -197,4 +196,6 @@ protected:
     int httpGetFlag;
 
     uint16_t num_sms;
+    uint16_t slots_sms;
+    bool networkTimeValid;
 };

@@ -172,23 +172,32 @@ bool ArduinoCloud::programOTA(const char* filename) {
     }
 }
 
+bool ArduinoCloud::checkOTA(int index, sms_event &ota_sms) {
+    const char* payload = auth->validateCommand(ota_sms.message, getID(), getKey(), getSeconds());
+    if(payload) {
+        ublox->deleteSMS(index);
+        if(strncmp(payload, "PF:", 3) == 0) { //OTA message
+            System.userInReset(true);
+            const char* url = payload+3;
+            if(downloadOTA(url, "ota")) {
+                if(programOTA("ota")) {
+
+                }
+            }
+            System.userInReset(false);
+        }
+        return true;
+    }
+    return false;
+}
+
 void ArduinoCloud::onNetworkEvent(uint32_t id, const void* content) {
     ublox_event_id e = (ublox_event_id)id;
     ublox_event_content *c = (ublox_event_content *)content;
 
     if(e == UBLOX_EVENT_SMS_RECEIVED) {
         if(ublox->readSMS(c->sms_index, sms)) {
-            const char* payload = auth->validateCommand(sms.message, getID(), getKey(), getSeconds());
-            if(payload) {
-                ublox->deleteSMS(c->sms_index);
-                if(strncmp(payload, "PF:", 3) == 0) { //OTA message
-                    const char* url = payload+3;
-                    if(downloadOTA(url, "ota")) {
-                        if(programOTA("ota")) {
-                            return;
-                        }
-                    }
-                }
+            if(checkOTA(c->sms_index, sms)) {
                 return;
             }
         }
