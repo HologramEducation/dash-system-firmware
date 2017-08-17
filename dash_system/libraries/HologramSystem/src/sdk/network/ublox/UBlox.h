@@ -32,6 +32,8 @@
 #define UBLOX_SOCKET_WR_BUFFER_SIZE 1024
 #endif
 
+#define UBLOX_MODEL_SIZE 16
+
 typedef struct {
     uint8_t year;
     uint8_t month;
@@ -75,19 +77,24 @@ typedef union {
 }ublox_event_content;
 
 typedef enum {
+    UBLOX_EVENT_NONE = 0,               //NULL
     UBLOX_EVENT_SMS_RECEIVED = 1,       //sms_event
     UBLOX_EVENT_FORCED_DISCONNECT = 2,  //NULL
     UBLOX_EVENT_NETWORK_TIME_UPDATE = 3,//NULL
     UBLOX_EVENT_SOCKET_ACCEPT = 4,      //connection_event
     UBLOX_EVENT_LOCATION_UPDATE = 5,    //location_event
+    UBLOX_EVENT_NETWORK_REGISTERED = 6, //NULL
+    UBLOX_EVENT_NETWORK_UNREGISTERED = 7, //NULL
 }ublox_event_id;
 
 typedef enum {
     UBLOX_CONN_DISCONNECTED = 0,
     UBLOX_CONN_CONNECTED = 1,
     UBLOX_CONN_ERR_SIM = 3,
+    UBLOX_CONN_ERR_UNREGISTERED = 4,
     UBLOX_CONN_ERR_SIGNAL = 5,
     UBLOX_CONN_ERR_CONNECT = 12,
+    UBLOX_CONN_ERR_OFF = 15, //powered off or never initialized
 }ublox_connection;
 
 typedef enum {
@@ -104,10 +111,11 @@ public:
     bool connect();
     bool disconnect();
     int getConnectionStatus();
+    bool isRegistered();
     int getSignalStrength();
 
     virtual void powerUp();
-    virtual void powerDown();
+    virtual void powerDown(bool soft=true);
 
     bool getLocation(int mode, int sensor, int response_type, int timeout, int accuracy, int num_hypothesis=1);
 
@@ -117,6 +125,8 @@ public:
     int getSlotsSMS();
 
     void pollEvents();
+
+    const char* getModel();
 
     int open(int port);
     int open(const char* port);
@@ -161,8 +171,12 @@ protected:
     virtual void debugln(int i){}
 
     bool checkConnected(int delay_seconds=1);
+    bool checkRegistered();
+    void setRegistered(bool reg);
     bool initModem(int delay_seconds=1);
     bool startswith(const char* a, const char* b);
+
+    void loadModel();
 
     void setHexMode(bool hex);
 
@@ -173,7 +187,7 @@ protected:
     bool _close(int socketnum);
 
     void rev_octet(char*& dst, const char* src);
-    char gsm7toascii(char c);
+    char gsm7toascii(char c, bool esc);
     void convert7to8bit(char* dst, const char* src, int num_chars);
     bool parse_sms_pdu(const char* fullpdu, sms_event &parsed_sms);
 
@@ -183,6 +197,7 @@ protected:
     Modem *modem;
     ublox_connection connectStatus;
     bool modemReady;
+    bool registered;
 
     char pdu[284];
     sms_event sms;
@@ -198,4 +213,6 @@ protected:
     uint16_t num_sms;
     uint16_t slots_sms;
     bool networkTimeValid;
+
+    char model[UBLOX_MODEL_SIZE];
 };

@@ -30,13 +30,14 @@ void UBlox::init(NetworkEventHandler &handler, Modem &m) {
     Network::init(handler);
     modem = &m;
     networkTimeValid = false;
-    connectStatus = UBLOX_CONN_DISCONNECTED;
+    connectStatus = UBLOX_CONN_ERR_OFF;
     for(int i=0; i<UBLOX_SOCKET_COUNT; i++) {
         sockets[i].bytes_available = 0;
         sockets[i].type = SOCKET_TYPE_NONE;
         sockets[i].id = 0;
     }
     powerUp();
+    loadModel();
     for(int i=0; i<UBLOX_SOCKET_COUNT; i++) {
         //get socket states
         switch(_socketState(i)) {
@@ -58,12 +59,16 @@ void UBlox::powerUp() {
     checkConnected(4);
 }
 
-void UBlox::powerDown() {
+void UBlox::powerDown(bool soft) {
     modemReady = false;
+    registered = false;
     networkTimeValid = false;
-    if(modem->command("", 200) == MODEM_OK) {
-        if(modem->command("+CPWROFF", 40000) == MODEM_OK) {
-            //return;
+    connectStatus = UBLOX_CONN_ERR_OFF;
+    if(soft) {
+        if(modem->command("", 200) == MODEM_OK) {
+            if(modem->command("+CPWROFF", 40000) == MODEM_OK) {
+                //failed
+            }
         }
     }
     holdReset();
@@ -78,39 +83,93 @@ bool UBlox::startswith(const char* a, const char* b) {
 }
 
 bool UBlox::checkConnected(int delay_seconds) {
-    initModem(delay_seconds);
-    if(modem->set("+UPSND", "0,8", "+UPSND: 0,8,1") == MODEM_OK) {
-        if(modem->set("+UPSND", "0,0") == MODEM_OK) {
-            connectStatus = UBLOX_CONN_CONNECTED;
-            return true;
+    if(!initModem(delay_seconds)) return false;
+
+    int rssi = getSignalStrength();
+    if(rssi == 99 || rssi == 0) {
+        connectStatus = UBLOX_CONN_ERR_SIGNAL;
+    } else if(!registered) {
+        connectStatus = UBLOX_CONN_ERR_UNREGISTERED;
+    } else {
+        connectStatus = UBLOX_CONN_DISCONNECTED;
+        if(modem->set("+UPSND", "0,8", "+UPSND: 0,8,1") == MODEM_OK) {
+            if(modem->set("+UPSND", "0,0") == MODEM_OK) {
+                connectStatus = UBLOX_CONN_CONNECTED;
+                return true;
+            }
         }
     }
-    if(connectStatus == UBLOX_CONN_CONNECTED)
-        connectStatus = UBLOX_CONN_DISCONNECTED;
+
     return false;
 }
 
-bool UBlox::initModem(int delay_seconds) {
-    while(modem->command("", delay_seconds*50, 20) != MODEM_OK) {
-        debugln("+DEBUG: Modem not responding. Restarting...");
-        modemReady = false;
-        networkTimeValid = false;
-        holdReset();
-        wait(100);
-        toggleReset();
-        delay_seconds = 4;
+void UBlox::setRegistered(bool reg) {
+    if(reg == registered) return;
+
+    ublox_event_id event = UBLOX_EVENT_NONE;
+    if(reg && !registered) {
+        //now registered
+        event = UBLOX_EVENT_NETWORK_REGISTERED;
+        //handle auto-reconnect?
+    } else if(!reg && registered) {
+        //now unregistered
+        event = UBLOX_EVENT_NETWORK_UNREGISTERED;
     }
+
+    registered = reg;
+
+    if(event != UBLOX_EVENT_NONE)
+        eventHandler->onNetworkEvent(event, NULL);
+}
+
+bool UBlox::isRegistered() {
+    return registered;
+}
+
+bool UBlox::checkRegistered() {
+    bool reg = false;
+    bool greg = false;
+    int n = 0;
+    int stat = 0;
+    if(modem->query("+CREG") == MODEM_OK) {
+        if(sscanf(modem->lastResponse(), "+CREG: %d,%d", &n, &stat) == 2) {
+            reg = (stat == 1) || (stat == 5);
+        } else if(sscanf(modem->lastResponse(), "+CREG: %d", &stat) == 1) {
+            reg = (stat == 1) || (stat == 5);
+        }
+    }
+    if(!reg) {
+        if(modem->query("+CGREG") == MODEM_OK) {
+            if(sscanf(modem->lastResponse(), "+CGREG: %d,%d", &n, &stat) == 2) {
+                greg = (stat == 1) || (stat == 5);
+            } else if(sscanf(modem->lastResponse(), "+CGREG: %d", &stat) == 1) {
+                greg = (stat == 1) || (stat == 5);
+            }
+        }
+    }
+    setRegistered(reg || greg);
+}
+
+bool UBlox::initModem(int delay_seconds) {
     if(modemReady)
         return true;
+    if(connectStatus == UBLOX_CONN_ERR_SIM)
+        return false;
 
-    //debugln("Bootstrapping (1/14): Init modem (can sometimes take several minutes).");
+    debugln("+DEBUG: initModem");
+
+    while(modem->command("", delay_seconds*50, 20) != MODEM_OK) {
+        debugln("+DEBUG: Modem not responding. Restarting...");
+        powerDown(false);
+        wait(100);
+        toggleReset();
+        delay_seconds++;
+    }
+
     modem->command("&K0"); //flow control off
     modem->command("E0"); //echo off
-
-    //debugln("Bootstrapping (2/14): Config modem.");
     modem->set("+CMEE", "2"); //set verbose error codes
 
-    //debugln("Bootstrapping (3/14): Init SIM card.");
     int cpin_count = 10;
     do {
         if(modem->query("+CPIN", "+CPIN: READY") == MODEM_OK) {
@@ -121,118 +180,62 @@ bool UBlox::initModem(int delay_seconds) {
     }while(--cpin_count);
 
     if(cpin_count == 0) {
-        debugln("Bootstrapping failed, no SIM card");
+        debugln("+DEBUG: UBLOX_CONN_ERR_SIM");
+        powerDown();
         connectStatus = UBLOX_CONN_ERR_SIM;
         return false;
     }
 
     modem->set("+CTZU", "1"); //time/zone sync
     modem->set("+CTZR", "1"); //time/zone URC
-    //modem->set("+CPIN", ""); //set SIM PIN
     modem->set("+CPMS", "\"ME\",\"ME\",\"ME\"");
     modem->set("+CMGF", "0"); //SMS PDU format
     modem->set("+CNMI", "2,1"); //SMS New Message Indication
+    modem->set("+UPSD", "0,1,\"hologram\"", 3000);
+    modem->set("+UPSD", "0,7,\"0.0.0.0\"", 3000);
     modem->set("+CREG", "2");
     modem->set("+CGREG", "2");
     modemReady = true;
+    checkRegistered();
+
     return true;
 }
 
 bool UBlox::connect() {
-    if(!initModem()) {
-        return false;
-    }
-
     if(!checkConnected()) {
-        debugln("Bootstrapping (5/14): Wait for carrier signal.");
-
-        int rssi = 99;
-        int rssi_retry = 180;
-        while(rssi_retry--) {
-            rssi = getSignalStrength();
-            if(rssi != 99)
-                break;
-            wait(500);
-        }
-        if(rssi == 99) {
-            debugln("Bootstrapping failed, no signal");
-            connectStatus = UBLOX_CONN_ERR_SIGNAL;
-            return false;
-        }
-        debug("RSSI: ");
-        debugln(rssi);
-
-        debugln("Bootstrapping (6/14): Establish operator link.");
-
-        int copcount = 6;
-        do {
-            if(modem->query("+COPS", 10000) == MODEM_OK) {
-                if(startswith(modem->lastResponse(), "+COPS: 0,"))
-                break;
+        if(connectStatus == UBLOX_CONN_DISCONNECTED)
+            if(modem->set("+UPSDA", "0,3", 5000, 5) == MODEM_OK) {
+                if(!checkConnected()) {
+                    powerDown();
+                    connectStatus = UBLOX_CONN_ERR_CONNECT;
+                }
             }
-            wait(2000);
-        }while(--copcount);
-        if(copcount == 0)
-            modem->set("+COPS", "0", 10000);
-
-
-
-        debugln("Bootstrapping (7/14): Config network.");
-        //modem->set("+UPSND", "0,8");
-
-        debugln("Bootstrapping (8/14): Config APN.");
-        modem->set("+UPSD", "0,1,\"apn.konekt.io\"", 3000);
-
-        debugln("Bootstrapping (9/14): Config IP address.");
-        modem->set("+UPSD", "0,7,\"0.0.0.0\"", 3000);
-
-        debugln("Bootstrapping (10/14): Link up (1 of 2).");
-        //modem->set("+UPSDA", "0,1");
-
-        debugln("Bootstrapping (11/14): Link up (2 of 2).");
-        modem->set("+UPSDA", "0,3", 5000, 5);
-
-        debugln("Bootstrapping (12/14): Link verification (1 of 2).");
-
-        if(!checkConnected()) {
-            debugln("Bootstrapping failed, no connection made");
-            powerDown();
-            connectStatus = UBLOX_CONN_ERR_CONNECT;
-            return false;
-        }
-        debugln("Bootstrapping (13/14): Link verification (2 of 2).");
     }
-    debugln("Bootstrapping (14/14): Enter serial passthrough mode. OK");
-    debugln("Modem is now connected");
-
-    connectStatus = UBLOX_CONN_CONNECTED;
-    return true;
+    return connectStatus == UBLOX_CONN_CONNECTED;
 }
 
 bool UBlox::disconnect() {
-    debugln("UBlox Disconnecting");
-    if(checkConnected()) {
+    checkConnected();
+    if(connectStatus == UBLOX_CONN_CONNECTED) {
         if(modem->set("+UPSDA", "0,4", 5000) != MODEM_OK) {
             initModem();
         }
     }
-    connectStatus = UBLOX_CONN_DISCONNECTED;
+    checkConnected();
     return true;
 }
 
 int UBlox::getConnectionStatus() {
-    debug("CS: ");
-    debugln(connectStatus);
+    checkConnected();
     return connectStatus;
 }
 
 int UBlox::getSignalStrength() {
-    while(modem->command("+CSQ") != MODEM_OK) {
-        wait(1000);
-    }
     int rssi = 99;
     int qual = 0;
-    sscanf(modem->lastResponse(), "+CSQ: %d,%d", &rssi, &qual);
+    if(modem->command("+CSQ") == MODEM_OK) {
+        sscanf(modem->lastResponse(), "+CSQ: %d,%d", &rssi, &qual);
+    }
     return rssi;
 }
 
@@ -250,6 +253,21 @@ int UBlox::getICCID(char *iccid) {
         return strlen(iccid);
     }
     return 0;
+}
+
+void UBlox::loadModel() {
+    if(modem->command("+CGMM") == MODEM_OK) {
+        strncpy(model, modem->lastResponse(), UBLOX_MODEL_SIZE);
+    }
+}
+
+const char* UBlox::getModel() {
+    if(model == NULL) {
+        loadModel();
+        if(model == NULL)
+            return "-unknown";
+    }
+    return model;
 }
 
 bool UBlox::getLocation(int mode, int sensor, int response_type, int timeout, int accuracy, int num_hypothesis) {
@@ -350,43 +368,59 @@ void UBlox::rev_octet(char*& dst, const char* src) {
   *dst++ = src[0];
 }
 
-char UBlox::gsm7toascii(char c)
+char UBlox::gsm7toascii(char c, bool esc)
 {
+    if(esc) {
+        switch(c) {
+            case 10: return 10;
+            case 20: return '^';
+            case 40: return '{';
+            case 41: return '}';
+            case 47: return '\\';
+            case 60: return '[';
+            case 61: return '~';
+            case 62: return ']';
+            case 64: return '|';
+            default: return ' ';
+        }
+    }
+
     if(c >= 18 && c < 27) return ' ';
     switch(c) {
-        case 0: return 64;
-        case 1: return 163;
-        case 2: return 36;
-        case 3: return 165;
-        case 4: return 232;
-        case 5: return 233;
-        case 6: return 249;
-        case 7: return 236;
-        case 8: return 242;
-        case 9: return 199;
-        case 11: return 216;
-        case 12: return 248;
-        case 14: return 197;
-        case 15: return 229;
-        case 17: return 95;
-        case 16: return ' ';
-        case 28: return 198;
-        case 29: return 230;
-        case 30: return 223;
-        case 31: return 201;
-        case 36: return 164;
-        case 64: return 161;
-        case 91: return 196;
-        case 92: return 214;
-        case 93: return 209;
-        case 94: return 220;
-        case 95: return 167;
-        case 96: return 191;
-        case 123: return 228;
-        case 124: return 246;
-        case 125: return 241;
-        case 126: return 252;
-        case 127: return 224;
+        case 1:
+        case 3:
+        case 4:
+        case 5:
+        case 6:
+        case 7:
+        case 8:
+        case 9:
+        case 11:
+        case 12:
+        case 14:
+        case 15:
+        case 16:
+        case 28:
+        case 29:
+        case 30:
+        case 31:
+        case 36:
+        case 64:
+        case 91:
+        case 92:
+        case 93:
+        case 94:
+        case 95:
+        case 96:
+        case 123:
+        case 124:
+        case 125:
+        case 126:
+        case 127:
+            return ' ';
+        case 0: return '@';
+        case 2: return '$';
+        case 17: return '_';
         default: return c;
     }
 }
@@ -396,6 +430,7 @@ void UBlox::convert7to8bit(char* dst, const char* src, int num_chars) {
     int last = 0;
     int current = 0;
     char bytebuf[3];
+    bool inescape = false;
 
     while(num_chars--) {
         last = current;
@@ -409,10 +444,15 @@ void UBlox::convert7to8bit(char* dst, const char* src, int num_chars) {
         *dst = last >> (8-offset);
         *dst |= current << offset;
         *dst &= 0x7F;
-        *dst = gsm7toascii(*dst);
+        if(*dst == 27 && !inescape) { //ESC
+            inescape = true;
+        } else {
+            *dst = gsm7toascii(*dst, inescape);
+            inescape = false;
+            dst++;
+        }
         offset++;
         if(offset == 8) offset = 0;
-        dst++;
     }
     *dst = 0;
 }
@@ -432,20 +472,23 @@ uint8_t UBlox::invertHex(const char *hex) {
 bool UBlox::parse_sms_pdu(const char* fullpdu, sms_event &parsed_sms) {
     const char* p = fullpdu;
     int smsc_len = Modem::convertHex(p);        //SMSC Length
-    p += 2;                                     //SMCS Number Type
-    if((p[0] != '8' && p[0] !='9') || p[1] != '1') return false;
-    p += (smsc_len*2);                          //SMSC Content
+    p += 2+(smsc_len*2);                        //skip SMSC Content
     if(p[1] & 0x3 != 0) return false;           //SMS-DELIVER
     p += 2;
     int sender_len = Modem::convertHex(p);      //Sender length
-    p += 2;                                     //Sender Number Type
-    if((p[0] != '8' && p[0] !='9') || p[1] != '1') return false;
+    p += 2;
+    uint8_t sender_type = Modem::convertHex(p); //Sender Number Type
     p += 2;
     int sender_read = sender_len;
     if(sender_read & 1) sender_read++;
-    char *smsdst = parsed_sms.sender;
-    for(int i=0; i<sender_read; i+=2) {
-        rev_octet(smsdst, &p[i]);
+
+    if((sender_type & 0x50) == 0x50) {
+        convert7to8bit(parsed_sms.sender, p, sender_len*4/7);
+    } else {
+        char *smsdst = parsed_sms.sender;
+        for(int i=0; i<sender_read; i+=2) {
+            rev_octet(smsdst, &p[i]);
+        }
     }
     parsed_sms.sender[sender_len] = 0;
     p += sender_read;
@@ -458,12 +501,9 @@ bool UBlox::parse_sms_pdu(const char* fullpdu, sms_event &parsed_sms) {
     parsed_sms.timestamp.minute = invertDecimal(&p[8]);
     parsed_sms.timestamp.second = invertDecimal(&p[10]);
     uint8_t tz = invertHex(&p[12]);
-    if(tz & 0x80 != 0) {
-        tz &= 0x7F;
-        parsed_sms.timestamp.tzquarter = (uint8_t)tz;
+    parsed_sms.timestamp.tzquarter = (int8_t)(((tz>>4)&0x07)*10 + (tz&0x0F));
+    if((tz >> 7) == 1) {
         parsed_sms.timestamp.tzquarter *= -1;
-    } else {
-        parsed_sms.timestamp.tzquarter = (uint8_t)tz;
     }
     p += 14;
     int msg_len = Modem::convertHex(p);
@@ -504,9 +544,15 @@ void UBlox::onURC(const char* urc) {
         }
         eventHandler->onNetworkEvent(UBLOX_EVENT_FORCED_DISCONNECT, NULL);
     } else if(startswith(urc, "+CREG: ")) {
-        //TODO +CREG
+        int stat = 0;
+        if(sscanf(urc, "+CREG: %d,", &stat) == 1) {
+            setRegistered((stat == 1) || (stat == 5));
+        }
     } else if(startswith(urc, "+CGREG: ")) {
-        //TODO +CGREG
+        int stat = 0;
+        if(sscanf(urc, "+CGREG: %d,", &stat) == 1) {
+            setRegistered((stat == 1) || (stat == 5));
+        }
     } else if(startswith(urc, "+UUHTTPCR: ")) {
         int flag;
         if(sscanf(urc, "+UUHTTPCR: 0,1,%d", &flag) == 1) {

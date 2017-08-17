@@ -20,6 +20,7 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 #include "Cloud.h"
+#include "variant.h"
 
 void Cloud::init(Network &network, AuthenticationMethod method) {
     this->network = &network;
@@ -48,6 +49,8 @@ bool Cloud::sendMessage(const uint8_t* content, uint32_t length, const char* top
     return sendMessage(content, length, topics, 1);
 }
 
+static const uint8_t metadata_version = 0x01;
+
 bool Cloud::sendMessage(const uint8_t* content, uint32_t length, const char* topics[], uint32_t numtags) {
     if(!network->getConnectionStatus()) {
         if(!network->connect())
@@ -57,7 +60,13 @@ bool Cloud::sendMessage(const uint8_t* content, uint32_t length, const char* top
     uint8_t response[3] = {0,0,0};
     int socket = network->open(getHost(), getPort());
     auth->writeAuth(content, length, getID(), getKey(), getSeconds(), *this, socket);
-    network->write(socket, " ");
+    network->write(socket, " M");
+    network->write(socket, &metadata_version, 1);
+    network->write(socket, "dash-");
+    network->write(socket, network->getModel());
+    network->write(socket, "-");
+    network->write(socket, FIRMWARE_VERSION_STRING);
+    network->write(socket, "\n");
     for(int i=0; i<numtags; i++) {
         network->write(socket, "T");
         network->write(socket, topics[i]);

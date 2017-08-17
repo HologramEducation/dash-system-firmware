@@ -145,6 +145,12 @@ void handle_event(ublox_event_id id, const ublox_event_content *content) {
     case UBLOX_EVENT_FORCED_DISCONNECT:
       Serial.println("+HDISCONNECTED: 1");
       break;
+    case UBLOX_EVENT_NETWORK_UNREGISTERED:
+      Serial.println("+HHREGISTERED: 0");
+      break;
+    case UBLOX_EVENT_NETWORK_REGISTERED:
+      Serial.println("+HHREGISTERED: 1");
+      break;
     case UBLOX_EVENT_NETWORK_TIME_UPDATE:
       break;
     case UBLOX_EVENT_LOCATION_UPDATE:

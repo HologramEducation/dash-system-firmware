@@ -3,7 +3,7 @@
 ## Introduction
 This is an Arduino implementation for the System processor on the Hologram Dash.
 Build your own image using the Arduino IDE or build the included Hologram
-firmware. 
+firmware.
 
 ## Arduino Installation
 
@@ -14,8 +14,16 @@ firmware.
 
 ## Building Firmware
 
-1. With the `Dash System` board selected, from the Examples menu, select `HologramSystem/hologram_at`.
+1. With the `Dash System` board selected, from the Examples menu, select an example sketch.
 2. Click the Verify button to build.
+
+## Programming the User processor
+
+1. Use Hologram Arduino package version 0.10.4 or later.
+2. Open the user sketch to program.
+3. From the Programmer select `hologram.io USB loader`.
+4. From the Firmware Updates menu, select `Custom Firmware`.
+5. Click the Upload button in the Arduino IDE.
 
 ## Programming the System processor
 

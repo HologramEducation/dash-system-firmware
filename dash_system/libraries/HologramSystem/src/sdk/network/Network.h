@@ -40,9 +40,11 @@ public:
     virtual int getSignalStrength()=0;
 
     virtual void powerUp()=0;
-    virtual void powerDown()=0;
+    virtual void powerDown(bool soft=true)=0;
 
     virtual void pollEvents()=0;
+
+    virtual const char* getModel()=0;
 
     virtual int open(int port)=0;
     virtual int open(const char* port)=0;
