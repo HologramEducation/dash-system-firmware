@@ -194,7 +194,7 @@ void Tricolor::off()
 void Tricolor::set(uint32_t pin, uint8_t value)
 {
     if(value == 0) {
-        pinMode(pin, INPUT);
+        pinMode(pin, DISABLE);
     } else if(value == 255) {
         pinMode(pin, OUTPUT);
         digitalWrite(pin, invert ? LOW : HIGH);
@@ -205,21 +205,12 @@ void Tricolor::set(uint32_t pin, uint8_t value)
 
 void Tricolor::on(uint8_t r, uint8_t g, uint8_t b)
 {
-    if(enabled)
-    {
-        this->r = r;
-        this->g = g;
-        this->b = b;
-        set(rpin, r);
-        set(gpin, g);
-        set(bpin, b);
-    }
-    else
-    {
-        pinMode(rpin, INPUT);
-        pinMode(gpin, INPUT);
-        pinMode(bpin, INPUT);
-    }
+    this->r = r;
+    this->g = g;
+    this->b = b;
+    set(rpin, enabled ? r : 0);
+    set(gpin, enabled ? g : 0);
+    set(bpin, enabled ? b : 0);
 }
 
 void Tricolor::on(ColorRGB color)

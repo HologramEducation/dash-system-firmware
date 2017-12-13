@@ -40,6 +40,7 @@ typedef enum
     CHARGE_INVALID5 = 5,
     CHARGE_NO_BATTERY = 6,
     CHARGE_NO_INPUT = 7,
+    CHARGE_UNKNOWN = 8,
 }CHARGE_STATE;
 
 class SystemClass
@@ -72,13 +73,13 @@ public:
     void timerInterrupt();
     void wakeFromSleep();
     void wakeFromSnooze();
-    void chargeInterrupt(bool force=false);
+
+    CHARGE_STATE chargeState();
 
     int bootVersionNumber();
     String bootVersion();
 
-    CHARGE_STATE chargeState();
-    void attachChargeNotify(void (*onChargeChange)(CHARGE_STATE));
+    uint32_t getLastWake();
 
 protected:
     uint32_t led;
@@ -88,10 +89,8 @@ protected:
     bool pulse_on;
     bool ready;
     volatile bool sleeping;
-    volatile CHARGE_STATE charge_state;
-    void (*charge_state_notify)(CHARGE_STATE);
 
-    void writeLED(bool on){digitalWrite(led, on ? HIGH : LOW);}
+    void writeLED(bool on);
     void deepSleep(bool halt);
     void pulseInterrupt();
     void do_snooze(uint32_t ticks);

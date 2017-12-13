@@ -35,8 +35,8 @@ void Lpuart::end()
 {
     LPUART_HAL_Init(instance);
     NVIC_DisableIRQ(irqNumber);
-    PORT_SET_MUX_DISABLED(rx);
-    PORT_SET_MUX_DISABLED(tx);
+    pinMode(rx, DISABLE);
+    pinMode(tx, DISABLE);
     SIM_HAL_DisableClock(SIM, gate_name);
     rxBuffer.clear();
     if(use_flowcontrol)

@@ -85,10 +85,11 @@ typedef enum {
     UBLOX_EVENT_LOCATION_UPDATE = 5,    //location_event
     UBLOX_EVENT_NETWORK_REGISTERED = 6, //NULL
     UBLOX_EVENT_NETWORK_UNREGISTERED = 7, //NULL
+    UBLOX_EVENT_CONNECTED = 8,          //NULL
 }ublox_event_id;
 
 typedef enum {
-    UBLOX_CONN_DISCONNECTED = 0,
+    UBLOX_CONN_REGISTERED = 0,
     UBLOX_CONN_CONNECTED = 1,
     UBLOX_CONN_ERR_SIM = 3,
     UBLOX_CONN_ERR_UNREGISTERED = 4,
@@ -96,6 +97,18 @@ typedef enum {
     UBLOX_CONN_ERR_CONNECT = 12,
     UBLOX_CONN_ERR_OFF = 15, //powered off or never initialized
 }ublox_connection;
+
+typedef enum {
+    UBLOX_STATE_INIT,
+    UBLOX_STATE_OFF,
+    UBLOX_STATE_CHECK_SIM,
+    UBLOX_STATE_NO_SIM,
+    //UBLOX_STATE_SIM_READY,
+    UBLOX_STATE_UNREGISTERED,
+    UBLOX_STATE_REGISTERED,
+    UBLOX_STATE_CONNECTING,
+    UBLOX_STATE_CONNECTED,
+}ublox_state;
 
 typedef enum {
     SOCKET_TYPE_NONE,
@@ -108,10 +121,11 @@ public:
     virtual void init(NetworkEventHandler &handler, Modem &m);
     virtual void onURC(const char* urc);
 
-    bool connect();
-    bool disconnect();
     int getConnectionStatus();
+    bool isInitialized();
+    bool isReady();
     bool isRegistered();
+    virtual bool isConnected();
     int getSignalStrength();
 
     virtual void powerUp();
@@ -125,6 +139,8 @@ public:
     int getSlotsSMS();
 
     void pollEvents();
+
+    uint32_t timeoutCount() {return modem->timeoutCount();}
 
     const char* getModel();
 
@@ -150,6 +166,10 @@ public:
     int readFile(const char* filename, int offset, void* buffer, int size);
     int readFileLine(const char* filename, int offset, char* buffer, int size);
 
+    const char* query(const char* cmd, uint32_t timeout=500, uint32_t retries=0);
+    const char* command(const char* cmd, uint32_t timeout=500, uint32_t retries=0);
+    const char* set(const char* cmd, const char* value, uint32_t timeout=500, uint32_t retries=0);
+
     static uint8_t invertDecimal(const char *dec);
     static uint8_t invertHex(const char *hex);
     static uint8_t convertField(const char* field);
@@ -165,12 +185,17 @@ protected:
     virtual void holdReset()=0;
     virtual void releaseReset()=0;
     virtual void toggleReset()=0;
+    virtual uint32_t modemResetTime() { return 4;}
     virtual void debug(const char* msg){}
     virtual void debugln(const char* msg){}
     virtual void debug(int i){}
     virtual void debugln(int i){}
 
-    bool checkConnected(int delay_seconds=1);
+    void state_init();
+    void state_check_sim();
+    void state_unregistered();
+    void state_registered();
+
     bool checkRegistered();
     void setRegistered(bool reg);
     bool initModem(int delay_seconds=1);
@@ -195,9 +220,8 @@ protected:
     bool uhttp(int profile, int opcode, int value);
 
     Modem *modem;
-    ublox_connection connectStatus;
-    bool modemReady;
-    bool registered;
+
+    ublox_state state;
 
     char pdu[284];
     sms_event sms;

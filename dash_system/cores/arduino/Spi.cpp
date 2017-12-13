@@ -83,9 +83,9 @@ void Spi::end()
 {
     SPI_HAL_Init(instance);
     //NVIC_DisableIRQ(irqNumber);
-    PORT_SET_MUX_DISABLED(miso);
-    PORT_SET_MUX_DISABLED(mosi);
-    PORT_SET_MUX_DISABLED(sclk);
+    pinMode(miso, DISABLE);
+    pinMode(mosi, DISABLE);
+    pinMode(sclk, DISABLE);
     SIM_HAL_DisableClock(SIM, gate_name);
 }
 

@@ -52,6 +52,8 @@ public:
     bool setAlarmHoursFromNow(uint32_t hours) {return setAlarmSecondsFromNow(hours*60*60);}
     bool setAlarmDaysFromNow(uint32_t days) {return setAlarmSecondsFromNow(days*24*60*60);}
 
+    void enableSeconds(bool enable);
+
     void cancelAlarm();
 
     bool alarmExpired();
@@ -67,6 +69,7 @@ public:
 protected:
     bool was_reset;
     volatile bool running;
+    volatile bool seconds_enabled;
     volatile uint32_t alarm_expired;
     void (*alarm_callback)(void);
 };

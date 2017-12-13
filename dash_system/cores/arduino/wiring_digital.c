@@ -9,7 +9,7 @@
   Derived from file with original copyright notice:
 
   Copyright (c) 2014 Arduino.  All right reserved.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
@@ -39,8 +39,12 @@ void pinMode( uint32_t io, uint32_t mode )
     //enable port clock
     PORT_CLOCK_ENABLE(io);
 
+    if(mode == DISABLE) {
+        PORT_SET_MUX_DISABLED(io);
+        return;
+    }
     //configure port as GPIO
-    PORT_SET_MUX(io, MUX_GPIO);
+    PORT_SET_MUX_GPIO(io);
 
     //configure gpio direction
     if(mode == OUTPUT)

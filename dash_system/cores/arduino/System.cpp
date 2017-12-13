@@ -30,8 +30,7 @@
 
 SystemClass::SystemClass(uint32_t led, uint32_t reset_user)
 : led(led), reset_user(reset_user),
-  on_clocks(0), off_clocks(0), pulse_on(0), ready(false), sleeping(false),
-  charge_state(CHARGE_FAULT), charge_state_notify(NULL)
+  on_clocks(0), off_clocks(0), pulse_on(0), ready(false), sleeping(false)
 {}
 
 void SystemClass::begin()
@@ -90,6 +89,10 @@ void SystemClass::pulseLED(uint32_t on_ms, uint32_t off_ms)
     }
 }
 
+void SystemClass::writeLED(bool on) {
+    digitalWrite(led, on ? HIGH : LOW);
+}
+
 void SystemClass::userInReset(bool reset)
 {
     if(reset)
@@ -116,12 +119,12 @@ void SystemClass::ubloxReset(bool in_reset)
 
 void SystemClass::ubloxReset()
 {
-    pinMode(UBLOX_RESET, INPUT);
+    pinMode(UBLOX_RESET, DISABLE);
     delayMicroseconds(100);
     digitalWrite(UBLOX_RESET, LOW);
     pinMode(UBLOX_RESET, OUTPUT);
     delayMicroseconds(60);
-    pinMode(UBLOX_RESET, INPUT);
+    pinMode(UBLOX_RESET, DISABLE);
 }
 
 void SystemClass::timerInterrupt()
@@ -210,14 +213,32 @@ void SystemClass::deepSleep(bool halt)
     MCG_BWR_C1_IREFSTEN(MCG, 0);
     NVIC_EnableIRQ(LLWU_IRQn);
     LLWU_WR_PE3_WUPE10(LLWU, 2); //Falling edge on program button
+    LLWU_WR_PE2_WUPE7(LLWU, 1); //Rising edge on UART RX
     SMC_BWR_PMCTRL_STOPM(SMC_BASE_PTR, 3); //Enter LLS mode on WFI
+    if(halt) {
+        Clock.enableSeconds(false);
+        if(DASH_1_2) {
+            RGB.enable(false);
+            pinMode(CHG_ST1, DISABLE);
+            pinMode(CHG_ST2, DISABLE);
+            pinMode(CHG_PG, DISABLE);
+            pinMode(UBLOX_RESET, DISABLE);
+        }
+        pinMode(reset_user, DISABLE);
+        pinMode(led, DISABLE);
+        pinMode(SWDIO, DISABLE);
+        pinMode(SWDCLK, DISABLE);
+    }
     SysTick->CTRL &= ~SysTick_CTRL_ENABLE_Msk;
     SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
     (void)SMC->PMCTRL;
     //__DSB();
     __WFI();
     //__ISB();
-    if(halt) NVIC_SystemReset();
+    if(halt) {
+        //ubloxReset();
+        //NVIC_SystemReset();
+    }
     NVIC_DisableIRQ(LLWU_IRQn);
     MCG_BWR_C1_IREFSTEN(MCG, enable_ir); //re-enable IR Clock in Stop
     SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
@@ -305,39 +326,15 @@ String SystemClass::bootVersion()
     return major + '.' + minor + '.' + revision;
 }
 
-void SystemClass::attachChargeNotify(void (*onChargeChange)(CHARGE_STATE))
+CHARGE_STATE SystemClass::chargeState()
 {
-    charge_state_notify = onChargeChange;
-    chargeInterrupt(true);
-}
-
-void SystemClass::chargeInterrupt(bool force)
-{
-    if(!DASH_1_2) return;
+    if(!DASH_1_2) return CHARGE_UNKNOWN;
 
     uint32_t st = digitalRead(CHG_ST1) << 2;
     st |= digitalRead(CHG_ST2) << 1;
     st |= digitalRead(CHG_PG);
-    bool notify = (force || (charge_state != (CHARGE_STATE)st)) && charge_state_notify;
-    charge_state = (CHARGE_STATE)st;
-    switch(charge_state) {
-        case CHARGE_CHARGING: RGB.on(BLUE); break;
-        case CHARGE_FAULT: RGB.on(RED); break;
-        case CHARGE_LOW_BATTERY_OUTPUT: RGB.on(CYAN); break;
-        case CHARGE_CHARGED: RGB.on(LIME); break;
-        case CHARGE_NO_BATTERY:
-        case CHARGE_NO_INPUT: RGB.off(); break;
-        case CHARGE_INVALID1:
-        case CHARGE_INVALID5: RGB.on(VIOLET); break;
-    }
-    if(notify) {
-        charge_state_notify(charge_state);
-    }
-}
 
-CHARGE_STATE SystemClass::chargeState()
-{
-    return charge_state;
+    return (CHARGE_STATE)st;
 }
 
 #ifdef __cplusplus
@@ -365,6 +362,10 @@ void LLWU_IRQHandler(void)
     }
 
     //SystemInit();
+}
+
+uint32_t SystemClass::getLastWake() {
+    return gLastWake;
 }
 
 #ifdef __cplusplus

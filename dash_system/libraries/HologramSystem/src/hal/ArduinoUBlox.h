@@ -28,7 +28,7 @@
 
 class ArduinoUBlox : public UBlox {
 public:
-    void begin(NetworkEventHandler &h, Modem &m, Stream *uart=NULL);
+    void begin(NetworkEventHandler &h, Stream &modem_uart, Stream *uart=NULL);
 protected:
     virtual void wait(uint32_t ms);
     virtual void holdReset();
@@ -38,8 +38,10 @@ protected:
     virtual void debugln(const char* msg);
     virtual void debug(int i);
     virtual void debugln(int i);
+    virtual uint32_t modemResetTime() { return DASH_1_2 ? 6 : 4;}
 
     Stream *uart;
+    ArduinoModem modem;
 };
 
 extern ArduinoUBlox ublox;

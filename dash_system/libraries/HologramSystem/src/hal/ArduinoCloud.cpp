@@ -106,11 +106,6 @@ bool ArduinoCloud::downloadOTA(const char* url, const char* destination) {
     char user[30] = "@dev_sim_";
     char pass[20];
 
-    if(!network->getConnectionStatus()) {
-        if(!network->connect())
-            return false;
-    }
-
     strcat(user, getID());
     auth->generatePassword(getID(), getKey(), getSeconds(), pass);
 
@@ -204,6 +199,14 @@ void ArduinoCloud::onNetworkEvent(uint32_t id, const void* content) {
     }
     if(event_cb)
         event_cb(e, c);
+}
+
+void ArduinoCloud::onPowerUp() {
+    if(DASH_1_2) digitalWrite(TXL_ON_N, HIGH);
+}
+
+void ArduinoCloud::onPowerDown() {
+    if(DASH_1_2) digitalWrite(TXL_ON_N, LOW);
 }
 
 ArduinoCloud Cloud;

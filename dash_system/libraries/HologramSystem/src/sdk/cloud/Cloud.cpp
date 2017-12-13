@@ -52,10 +52,8 @@ bool Cloud::sendMessage(const uint8_t* content, uint32_t length, const char* top
 static const uint8_t metadata_version = 0x01;
 
 bool Cloud::sendMessage(const uint8_t* content, uint32_t length, const char* topics[], uint32_t numtags) {
-    if(!network->getConnectionStatus()) {
-        if(!network->connect())
-            return false;
-    }
+    if(!network->isConnected())
+        return false;
 
     uint8_t response[3] = {0,0,0};
     int socket = network->open(getHost(), getPort());
@@ -92,10 +90,8 @@ bool Cloud::sendMessage(const uint8_t* content, uint32_t length, const char* top
 }
 
 int Cloud::listen(int port) {
-    if(!network->getConnectionStatus()) {
-        if(!network->connect())
-            return 0;
-    }
+    if(!network->isConnected())
+        return false;
     return network->open(port);
 }
 

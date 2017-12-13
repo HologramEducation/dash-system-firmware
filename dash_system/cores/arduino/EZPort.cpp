@@ -54,4 +54,6 @@ void EZPort::end()
     delay(10);
     pinMode(resetPin, INPUT);
     delay(10);
+    pinMode(ssPin, DISABLE);
+    pinMode(resetPin, DISABLE);
 }

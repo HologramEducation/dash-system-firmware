@@ -32,30 +32,27 @@ extern "C" {
 #define UBLOX_RESET                      1
 #define CHG_ST1                          2
 #define SWDIO                            3
-#define CHG_ST2                          4
-#define M1_TMS_SWDIO                     5
+
+#define USR_TMS_SWDIO                    5
 #define PWM_R                            6
-#define M1_TX_TO_M2_RX                   7
-#define M2_TX_TO_M1_RX                   8
-#define USER_RESET                       9
-#define WAKE_SYSTEM                     10
-#define WAKE_USER                       11
+#define USR_TX_TO_SYS_RX                 7
+#define SYS_TX_TO_USR_RX                 8
+#define USR_RESET                        9
+#define USER_PROGRAM                    10
+#define WAKE_USR                        11
 #define PWM_G                           12
 #define PWM_B                           13
-#define M2_UBLOX_RX                     14
-#define M2_UBLOX_TX                     15
+#define SYS_UBLOX_RX                     14
+#define SYS_UBLOX_TX                     15
 #define BL_SCL                          16
 #define BL_SDA                          17
-#define M2_UBLOX_CTS                    18
-#define M2_UBLOX_RTS                    19
+#define TXL_ON_N                        18
+#define CHG_ST2                         19
 #define EZP_CS                          20
-#define M1_TCK_SWDCLK                   21
-#define M1_TDI                          22
-#define M1_TDO_SWO                      23
+#define USR_TCK_SWDCLK                   21
+#define USR_TDI                          22
+#define USR_TDO_SWO                      23
 #define CHG_PG                          24
-
-#define WAKE_M1                         WAKE_USER
-#define WAKE_M2                         WAKE_SYSTEM
 
 #define A0                               5
 #define A1                               6

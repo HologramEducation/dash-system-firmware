@@ -29,13 +29,14 @@
 class NetworkEventHandler {
 public:
     virtual void onNetworkEvent(uint32_t id, const void* content)=0;
+    virtual void onPowerUp()=0;
+    virtual void onPowerDown()=0;
 };
 
 class Network {
 public:
     virtual void init(NetworkEventHandler &handler);
-    virtual bool connect()=0;
-    virtual bool disconnect()=0;
+    virtual bool isConnected()=0;
     virtual int getConnectionStatus()=0;
     virtual int getSignalStrength()=0;
 

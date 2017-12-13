@@ -21,7 +21,7 @@
 */
 #include <HologramSystem.h>
 
-#define HOLO_REV 2
+#define HOLO_REV 3
 
 #define MAX_COMMAND_SIZE 256
 #define MAX_MESSAGE_SIZE 4*1024
@@ -29,7 +29,13 @@
 #define MAX_TOPIC_SIZE 63
 #define MAX_READ_SIZE 64
 
-bool passthrough_mode = false;
+typedef enum {
+  MS_STARTUP,
+  MS_RUN,
+  MS_PASSTHROUGH,
+}modem_state;
+
+modem_state state;
 
 uint8_t read_buffer[MAX_READ_SIZE];
 
@@ -65,7 +71,7 @@ int getOldestSMS(sms_event &oldest) {
 
   uint32_t numsms = ublox.getNumSMS();
   if(numsms == 1) return index_oldest;
-  
+
   int i = 1;
   int numcomp = 1;
   static sms_event current;
@@ -78,10 +84,6 @@ int getOldestSMS(sms_event &oldest) {
       if(seconds_current < seconds_oldest) {
         seconds_oldest = seconds_current;
         index_oldest = i;
-//        Serial.print("+DEBUG: found new oldest ");
-//        Serial.print(index_oldest);
-//        Serial.print(" @ ");
-//        Serial.println(Cloud.getSecondsUTC(oldest.timestamp));
         memcpy(&oldest, &current, sizeof(sms_event));
       }
     }
@@ -99,7 +101,7 @@ int getOldestSMS(sms_event &oldest) {
 
 void sendNextSMS() {
   rtc_datetime_t sms_dt;
-  
+
   int index = getOldestSMS(sms);
   if(index > 0) {
     OK();
@@ -109,8 +111,8 @@ void sendNextSMS() {
 
     if(Cloud.convertToLocalTime(sms_dt, sms.timestamp)) {
       ublox.deleteSMS(index);
-  
-      Serial.print("+HSMSCTX: \"+");
+
+      Serial.print("+HHSMSCTX: \"+");
       Serial.print(sms.sender);
       Serial.print("\",\"");
       Serial.print(sms_dt);
@@ -120,19 +122,19 @@ void sendNextSMS() {
       return;
     }
   }
-  
+
   ERROR();
 }
 
 void handle_event(ublox_event_id id, const ublox_event_content *content) {
   switch(id) {
     case UBLOX_EVENT_SMS_RECEIVED:
-      Serial.print("+HSMSRX: ");
+      Serial.print("+HHSMSRX: ");
       Serial.println(ublox.getNumSMS());
       break;
     case UBLOX_EVENT_SOCKET_ACCEPT:
       Cloud.acknowledgeAccept(content->accept.socket);
-      Serial.print("+HSOCKACCEPT: ");
+      Serial.print("+HHSOCKACCEPT: ");
       Serial.print(content->accept.socket);
       Serial.print(",\"");
       Serial.print(content->accept.remote.host);
@@ -142,8 +144,11 @@ void handle_event(ublox_event_id id, const ublox_event_content *content) {
       Serial.println(content->accept.listener);
       Serial.println();
       break;
+    case UBLOX_EVENT_CONNECTED:
+      Serial.println("+HHCONNECTED: 1");
+      break;
     case UBLOX_EVENT_FORCED_DISCONNECT:
-      Serial.println("+HDISCONNECTED: 1");
+      Serial.println("+HHCONNECTED: 0");
       break;
     case UBLOX_EVENT_NETWORK_UNREGISTERED:
       Serial.println("+HHREGISTERED: 0");
@@ -192,11 +197,20 @@ typedef enum {
 parse_state st = ST_FIND_A;
 
 void ERROR() {
+  if(Serial.available() > 1) {
+    Serial.flush();
+  } else {
+  }
   Serial.println("ERROR");
 }
 
 void OK() {
-  Serial.println("OK");
+  if(Serial.available() > 1) {
+    Serial.flush();
+    Serial.println("ERROR");
+  } else {
+    Serial.println("OK");
+  }
 }
 
 void respond(const char* cmd, int value) {
@@ -210,45 +224,55 @@ void respond(const char* cmd, int value) {
 void processQuery(const char* query) {
   if(strcmp(query, "+HOLO")==0) {
     respond(query, HOLO_REV);
-  } else if(strcmp(query, "+HSMS")==0) {
+  } else if (strcmp(query, "+HSMS")==0) {
     respond(query, ublox.isNetworkTimeAvailable() ? ublox.getNumSMS() : 0);
+  } else if(strcmp(query, "+HCHARGE")==0) {
+    respond(query, (int)System.chargeState());
   } else {
-    modem_result r = modem.query(query);
-    if(r == MODEM_OK) {
-      if(strlen(modem.lastResponse()) > 0) {
-        Serial.println(modem.lastResponse());
+    const char* r = ublox.query(query);
+    if(r == NULL) {
+      ERROR();
+    } else {
+      if(strlen(r) > 0) {
+        Serial.println(r);
         Serial.println();
       }
       OK();
-    } else {
-      ERROR();
     }
   }
 }
 
 void processCommand(const char* cmd) {
-  if(strcmp(cmd, "+HSQ")==0) {
-    respond(cmd, ublox.getSignalStrength());
-  } else if(strcmp(cmd, "+HCONSTATUS")==0) {
-    respond(cmd, ublox.getConnectionStatus());
-  } else if(strcmp(cmd, "+HCONNECT")==0) {
-    ublox.connect();
-    respond(cmd, ublox.getConnectionStatus());
-  } else if(strcmp(cmd, "+HDISCONNECT")==0) {
-    if(ublox.disconnect())
-      OK();
-    else
-      ERROR();
-  } else if(strcmp(cmd, "+HSHUTDOWN")==0) {
-    ublox.powerDown();
+  if(strcmp(cmd, "")==0) {
     OK();
-    Serial.waitToEmpty();
-    SerialUBlox.end();
-    System.shutdown();
   } else if(strcmp(cmd, "+HMRST")==0) {
     ipc_topic_count = 0;
     ipc_msg_len = 0;
     OK();
+  } else if(strcmp(cmd, "+HDEBUGTIMEOUT")==0) {
+
+  } else if(strcmp(cmd, "+HSQ")==0) {
+    volatile uint8_t *p = 0;
+    p[0] = strlen(cmd);
+    respond(cmd, p[0]);
+  } else if(strcmp(cmd, "+HCONSTATUS")==0) {
+    respond(cmd, ublox.getConnectionStatus());
+  } else if(strcmp(cmd, "+HCONNECT")==0) {
+    ublox.powerUp();
+    OK();
+  } else if(strcmp(cmd, "+HDISCONNECT")==0) {
+    OK();
+    ublox.powerDown();
+  } else if(strcmp(cmd, "+HSHUTDOWN")==0) {
+    ublox.powerDown();
+    OK();
+    Serial.waitToEmpty();
+    Serial.end();
+    SerialUBlox.end();
+    pinMode(USR_TX_TO_SYS_RX, INPUT_PULLDOWN);
+    System.shutdown();
+    ublox.powerUp();
+    restart();
   } else if(strcmp(cmd, "+HMSEND")==0) {
     if(ipc_msg_len > 0) {
       if(Cloud.sendMessage(ipc_msg_buf, ipc_msg_len, ipc_topic_list, ipc_topic_count)) {
@@ -264,18 +288,19 @@ void processCommand(const char* cmd) {
     }
   } else if(strcmp(cmd, "+HSMSRD")==0) {
     sendNextSMS();
+  } else if(strcmp(cmd, "+HMODEMRESET")==0) {
+    ublox.powerUp();
+    OK();
   } else {
-
-    modem_result r = modem.command(cmd);
-    if(r == MODEM_OK) {
-      if(strlen(modem.lastResponse()) > 0) {
-        Serial.println(modem.lastResponse());
+    const char* r = ublox.command(cmd);
+    if(r == NULL) {
+      ERROR();
+    } else {
+      if(strlen(r) > 0) {
+        Serial.println(r);
         Serial.println();
       }
       OK();
-    } else {
-      ERROR();
-      return;
     }
   }
 }
@@ -303,7 +328,7 @@ void processSet(const char* cmd, const char* set) {
           wrover = ipc_msg_len + wrlen - MAX_MESSAGE_SIZE;
           wrlen -= wrover;
         }
-        System.snooze(100);
+        System.snooze(2);
         Serial.flush();
         Serial.write('@');
         int towr = wrlen;
@@ -347,6 +372,37 @@ void processSet(const char* cmd, const char* set) {
     }
     Serial.println("\"");
     Serial.println();
+    OK();
+  } else if(strcmp(cmd, "+HRGBN")==0) {
+    if(DASH_1_2 && RGB.on(set)) {
+      OK();
+    } else {
+      ERROR();
+    }
+  } else if(strcmp(cmd, "+HRGBH")==0) {
+    char *pEnd;
+    int value = strtol(set, &pEnd, 16);
+    if(!DASH_1_2 || pEnd[0] != 0) {
+        ERROR();
+    } else {
+      RGB.on(value);
+      OK();
+    }
+  } else if(strcmp(cmd, "+HLED")==0) {
+    if(strcmp("1", set) == 0) {
+      System.onLED();
+      OK();
+    } else if(strcmp("0", set) == 0) {
+      System.offLED();
+      OK();
+    } else {
+      ERROR();
+    }
+  } else if(strcmp(cmd, "+HDEBUGDELAYERR")==0) {
+    System.snooze(atoi(set));
+    ERROR();
+  } else if(strcmp(cmd, "+HDEBUGDELAY")==0) {
+    System.snooze(atoi(set));
     OK();
   } else if(strcmp(cmd, "+HLOC")==0) {
     int timeout, accuracy;
@@ -413,21 +469,20 @@ void processSet(const char* cmd, const char* set) {
     int value;
     if(sscanf(set, "%d", &value) == 1) {
       OK();
-      passthrough_mode = true;
+      state = MS_PASSTHROUGH;
     } else {
       ERROR();
     }
   } else {
-    modem_result r = modem.set(cmd, set);
-    if(r == MODEM_OK) {
-      if(strlen(modem.lastResponse()) > 0) {
-        Serial.println(modem.lastResponse());
+    const char* r = ublox.set(cmd, set);
+    if(r == NULL) {
+      ERROR();
+    } else {
+      if(strlen(r) > 0) {
+        Serial.println(r);
         Serial.println();
       }
       OK();
-    } else {
-      ERROR();
-      return;
     }
   }
 }
@@ -518,6 +573,7 @@ void pushChar(uint8_t c)
       int len = strlen(pcmd);
       if(len == 0) {
         OK();
+        Serial.println("+HDEBUG: AT");
       } else if(len > 0 && pcmd[len-1] == '?') {
         pcmd[len-1] = 0;
         processQuery(pcmd);
@@ -535,32 +591,70 @@ void pushChar(uint8_t c)
   }
 }
 
-void setup() {
+void chargeStateChanged(CHARGE_STATE cs) {
+  Serial.print("+HHCHARGE: ");
+  Serial.println((int)cs);
+}
+
+CHARGE_STATE updateCharge() {
+  static CHARGE_STATE prev = CHARGE_UNKNOWN;
+  CHARGE_STATE curr = System.chargeState();
+  if(prev != curr) {
+    uint32_t start = millis();
+    while (millis() - start < 30) {
+      for(int i=0; i<100; i++) {
+        if(System.chargeState() != curr) {
+          return prev;
+        }
+      }
+    }
+    prev = curr;
+    Serial.print("+HHCHARGE: ");
+    Serial.println((int)prev);
+  }
+  return prev;
+}
+
+volatile bool ublox_low = true;
+void ublox_on_check() {
+  ublox_low = false;
+}
+
+void check_ublox() {
+  pinMode(SYS_UBLOX_RX, INPUT_PULLDOWN);
+  if(digitalRead(SYS_UBLOX_RX) == LOW) {
+    attachInterrupt(SYS_UBLOX_RX, ublox_on_check, RISING);
+    uint32_t startMillis = millis();
+    while(ublox_low && (millis() - startMillis < 100));
+    if(ublox_low && digitalRead(SYS_UBLOX_RX) == LOW) {
+        //RGB.on(RED);
+        System.ubloxReset();
+    }
+  }
+}
+
+void initialize() {
   SerialUBlox.begin(115200);
   Serial.begin(115200);
   Serial.print("+HHOLO: ");
   Serial.println(HOLO_REV);
 
   Cloud.begin(ublox, AUTH_TOTP, handle_event);
-  modem.begin(SerialUBlox, ublox);
-  ublox.begin(Cloud, modem);
+  ublox.begin(Cloud, SerialUBlox);
 
-  Serial.flush();
+  SerialUBlox.flush();
+  state = MS_RUN;
 }
 
-void loop() {
-  if(passthrough_mode) {
-    while(Serial.available()) {
-      SerialUBlox.write(Serial.read());
-    }
-    while(SerialUBlox.available()) {
-      Serial.write(SerialUBlox.read());
-    }
-    return;
-  }
-  
+void state_startup() {
+  check_ublox();
+  initialize();
+}
+
+void state_run() {
   bool sleep = true;
   ublox.pollEvents();
+  updateCharge();
 
   while(Serial.available()) {
     sleep = false;
@@ -570,5 +664,37 @@ void loop() {
   if(sleep) {
     Serial.waitToEmpty();
     System.sleep();
+  }
+}
+
+void setup() {
+  updateCharge();
+  state = MS_STARTUP;
+  ublox_low = true;
+}
+
+void restart() {
+  wvariant_init();
+  initialize();
+}
+
+void loop() {
+  switch(state) {
+    case MS_STARTUP:
+      state_startup();
+      break;
+    case MS_RUN:
+      state_run();
+      break;
+    case MS_PASSTHROUGH:
+      while(Serial.available()) {
+        SerialUBlox.write(Serial.read());
+      }
+      while(SerialUBlox.available()) {
+        Serial.write(SerialUBlox.read());
+      }
+      break;
+    default:
+      break;
   }
 }

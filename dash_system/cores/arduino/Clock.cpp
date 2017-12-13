@@ -145,9 +145,15 @@ uint32_t ClockClass::counter()
     return RTC_HAL_GetSecsReg(RTC);
 }
 
+void ClockClass::enableSeconds(bool enable) {
+    seconds_enabled = enable;
+    RTC_HAL_SetSecsIntCmd(RTC, seconds_enabled);
+}
+
 void ClockClass::secondsInterrupt()
 {
-    RTC_HAL_SetSecsIntCmd(RTC, false);
+    if(!seconds_enabled)
+        RTC_HAL_SetSecsIntCmd(RTC, false);
     running = true;
 }
 

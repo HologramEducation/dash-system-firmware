@@ -30,26 +30,26 @@
  *   1     |  PTA1  | --- | UBLOX_RESET
  *   2     |  PTA2  | --- | CHG_ST1 (1.2 only)
  *   3     |  PTA3  | --- | M2_TMS_SWDIO
- *   4     |  PTA4  | --- | CHG_ST2 (1.2 only)  NMI!!!
- *   5     |  PTC1  |  A0 | M1_TMS_SWDIO
+ *   4     |  PTA4  | --- | NMI!!!
+ *   5     |  PTC1  |  A0 | USR_TMS_SWDIO
  *   6     |  PTC2  |  A1 | PWM_R (1.2 only)
- *   7     |  PTC3  | --- | M1_TX_TO_M2_RX
- *   8     |  PTC4  | --- | M2_TX_TO_M1_RX
- *   9     |  PTC5  | --- | M1_RESET
- *  10     |  PTC6  | --- | WAKE_M2
- *  11     |  PTC7  | --- | WAKE_M1
+ *   7     |  PTC3  | --- | USR_TX_TO_SYS_RX
+ *   8     |  PTC4  | --- | SYS_TX_TO_USR_RX
+ *   9     |  PTC5  | --- | USR_RESET
+ *  10     |  PTC6  | --- | USER_PROGAM
+ *  11     |  PTC7  | --- | WAKE_USR
  *  12     |  PTD4  | --- | PWM_G (1.2 only)
  *  13     |  PTD5  |  A2 | PWM_B (1.2 only)
- *  14     |  PTD6  |  A3 | M2_UBLOX_RX
- *  15     |  PTD7  | --- | M2_UBLOX_TX
+ *  14     |  PTD6  |  A3 | SYS_UBLOX_RX
+ *  15     |  PTD7  | --- | SYS_UBLOX_TX
  *  16     |  PTB0  |  A4 | BL_SCL
  *  17     |  PTB1  |  A5 | BL_SDA
- *  18     |  PTE0  | --- | M2_UBLOX_CTS (1.2 only)
- *  19     |  PTE1  | --- | M2_UBLOX_RTS (1.2 only)
+ *  18     |  PTE0  | --- | TXL_ON_N (1.2 only)
+ *  19     |  PTE1  | --- | CHG_ST2 (1.2 only)
  *  20     |  PTE16 |  A6 | EZP_CS
- *  21     |  PTE17 |  A7 | M1_TCK_SWDCLK
- *  22     |  PTE18 |  A8 | M1_TDI
- *  23     |  PTE19 |  A9 | M1_TDO_SWO
+ *  21     |  PTE17 |  A7 | USR_TCK_SWDCLK
+ *  22     |  PTE18 |  A8 | USR_TDI
+ *  23     |  PTE19 |  A9 | USR_TDO_SWO
  *  24     |  PTE30 | A10 | CHG_PG
  */
 
@@ -83,19 +83,19 @@ extern const PinDescription g_APinDescription[]=
     {PORT_E,   30, NONE, ADC_PIN(ADC_0, 23),        NONE, NONE, NONE,              PWM_DAC(0)}, //24
 };
 
-Lpuart SerialUBlox(LPUART0, kSimClockGateLpuart0, INDEX_MCGIRCLK_CLOCK, LPUART0_IRQn, M2_UBLOX_RX, M2_UBLOX_TX);
-Lpuart Serial(LPUART1, kSimClockGateLpuart1, INDEX_MCGIRCLK_CLOCK, LPUART1_IRQn, M1_TX_TO_M2_RX, M2_TX_TO_M1_RX);
+Lpuart SerialUBlox(LPUART0, kSimClockGateLpuart0, INDEX_MCGIRCLK_CLOCK, LPUART0_IRQn, SYS_UBLOX_RX, SYS_UBLOX_TX);
+Lpuart Serial(LPUART1, kSimClockGateLpuart1, INDEX_MCGIRCLK_CLOCK, LPUART1_IRQn, USR_TX_TO_SYS_RX, SYS_TX_TO_USR_RX);
 
 TwoWire Wire(I2C0, kSimClockGateI2c0, INDEX_SYSTEM_CLOCK, I2C0_IRQn, BL_SDA, BL_SCL);
 
-static Spi SPI_EZPORT(SPI0, kSimClockGateSpi0, INDEX_BUS_CLOCK, SPI0_IRQn, 0, M1_TDO_SWO, M1_TDI, M1_TCK_SWDCLK);
+static Spi SPI_EZPORT(SPI0, kSimClockGateSpi0, INDEX_BUS_CLOCK, SPI0_IRQn, 0, USR_TDO_SWO, USR_TDI, USR_TCK_SWDCLK);
 
 Tricolor RGB(PWM_R, PWM_G, PWM_B, true);
 
 MCUFlash MCUFLASH;
-EZPort EZPORT(4096, 16, EZP_CS, USER_RESET);
+EZPort EZPORT(4096, 16, EZP_CS, USR_RESET);
 
-SystemClass System(WAKE_USER, USER_RESET);
+SystemClass System(WAKE_USR, USR_RESET);
 ClockClass Clock;
 
 bool DASH_1_2 = false;
@@ -126,7 +126,6 @@ void I2C0_IRQHandler(void)
 
 void NMI_Handler(void)
 {
-    System.chargeInterrupt();
 }
 
 void PIT_IRQHandler(void)
@@ -154,6 +153,7 @@ void LPTMR0_IRQHandler(void)
 void RTC_Seconds_IRQHandler(void)
 {
     Clock.secondsInterrupt();
+    System.wakeFromSleep();
 }
 
 void RTC_IRQHandler(void)
@@ -162,13 +162,10 @@ void RTC_IRQHandler(void)
     System.wakeFromSleep();
 }
 
-void charge_state_changed(void)
-{
-    System.chargeInterrupt();
-}
-
 void wvariant_init(void)
 {
+    RCM_RPFC_REG(RCM) = 0x06;
+    RCM_RPFW_REG(RCM) = 0x1F;
     NVIC_SetPriority(LPTMR0_IRQn, 0);
     NVIC_SetPriority(LPUART0_IRQn, 1);
     NVIC_SetPriority(LPUART1_IRQn, 1);
@@ -185,8 +182,8 @@ void wvariant_init(void)
     EZPORT.init(SPI_EZPORT);
     System.begin();
 
-    pinMode(WAKE_SYSTEM, INPUT_PULLUP);
-    attachInterrupt(WAKE_SYSTEM, NVIC_SystemReset, FALLING);
+    pinMode(USER_PROGRAM, INPUT_PULLUP);
+    attachInterrupt(USER_PROGRAM, NVIC_SystemReset, FALLING);
 
     pinMode(CHG_ST1, INPUT_PULLDOWN);
     pinMode(CHG_ST2, INPUT_PULLDOWN);
@@ -212,13 +209,14 @@ void wvariant_init(void)
 
     if(DASH_1_2)
     {
-        //SerialUBlox.flowcontrol(true, M2_UBLOX_RTS, M2_UBLOX_CTS);
+        pinMode(TXL_ON_N, OUTPUT);
+        digitalWrite(TXL_ON_N, HIGH);
         RGB.enable(true);
-        attachInterrupt(CHG_ST1, charge_state_changed, CHANGE);
-        attachInterrupt(CHG_ST2, charge_state_changed, CHANGE);
-        System.chargeInterrupt(true);
     }
     Clock.init(DASH_1_2);
+    if(DASH_1_2) {
+        Clock.enableSeconds(true);
+    }
 }
 
 #ifdef __cplusplus

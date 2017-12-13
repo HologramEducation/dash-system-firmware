@@ -47,10 +47,22 @@ void handle_event(ublox_event_id id, const ublox_event_content *content) {
         Serial.println("\"");
       }
       break;
+    case UBLOX_EVENT_CONNECTED:
+      Serial.println("+EVENT:CONNECTED,\"Modem is now connected\"");
+      break;
     case UBLOX_EVENT_FORCED_DISCONNECT:
       Serial.println("+EVENT:DISCONNECTED");
+      break;
+    case UBLOX_EVENT_NETWORK_UNREGISTERED:
+      Serial.println("+EVENT:UNREGISTERED");
+      break;
+    case UBLOX_EVENT_NETWORK_REGISTERED:
+      Serial.println("+EVENT:REGISTERED");
+      break;
     }
 }
+
+int last_status = UBLOX_CONN_ERR_OFF;
 
 void setup() {
   SerialUBlox.begin(115200);
@@ -58,10 +70,11 @@ void setup() {
   Serial.println("+EVENT:BOOT");
 
   Cloud.begin(ublox, AUTH_TOTP, handle_event);
-  modem.begin(SerialUBlox, ublox);
-  ublox.begin(Cloud, modem);
+  ublox.begin(Cloud, SerialUBlox);
 
   Serial.flush();
+  Serial.println("+EVENT:CONNECTING,\"Connecting...\"");
+  ublox.powerUp();
 }
 
 char msgbuf[4*1024];
@@ -70,37 +83,17 @@ uint32_t retry_count = 0;
 
 void loop() {
   ublox.pollEvents();
-  while(ublox.getConnectionStatus() != UBLOX_CONN_CONNECTED) {
-    if(retry_count) {
-      Serial.print("+EVENT:WAIT,\"Waiting ");
-      Serial.print(retry_count);
-      Serial.println(" minutes to reconnect\"");
-      ublox.powerDown();
-      Serial.waitToEmpty();
-      System.deepestSleepSec(retry_count*60);
-      ublox.powerUp();
-      if(retry_count > 5)
-        retry_count = 5;
+  int status = ublox.getConnectionStatus();
+  if(status != last_status) {
+
+    switch(status) {
+        case UBLOX_CONN_ERR_SIM: Serial.println("+EVENT:CONNECTFAIL,\"Failed to connect: Check SIM card.\""); break;
+        case UBLOX_CONN_ERR_SIGNAL: Serial.println("+EVENT:CONNECTFAIL,\"Failed to connect: No signal. Check antenna.\""); break;
+        case UBLOX_CONN_ERR_CONNECT: Serial.println("+EVENT:CONNECTFAIL,\"Failed to connect: No connection. Check if SIM is active.\""); break;
     }
-    Serial.println("+EVENT:CONNECTING,\"Connecting...\"");
-    if(ublox.connect()) {
-      retry_count = 0;
-      Serial.println("+EVENT:CONNECTED,\"Modem is now connected\"");
-    } else {
-      Serial.print("+EVENT:CONNECTFAIL,\"Failed to connect: ");
-      switch(ublox.getConnectionStatus()) {
-        case UBLOX_CONN_DISCONNECTED: Serial.println("Disconnected."); break;
-        case UBLOX_CONN_CONNECTED: Serial.println("Connected.");break;
-        case UBLOX_CONN_ERR_SIM: Serial.println("Check SIM card."); break;
-        case UBLOX_CONN_ERR_SIGNAL: Serial.println("No signal. Check antenna."); break;
-        case UBLOX_CONN_ERR_CONNECT: Serial.println("No connection. Check if SIM is active."); break;
-        default: Serial.print("Unknown "); Serial.print(ublox.getConnectionStatus()); break;
-      }
-      Serial.print("\"");
-      retry_count++;
-    }
+    last_status = status;  
   }
-  while(Serial.available()) {
+  while(status == UBLOX_CONN_CONNECTED && Serial.available()) {
     char c = Serial.read();
     //Serial.write(c); //echo
     *msgp = c;
@@ -111,7 +104,7 @@ void loop() {
       }
 
       if(strlen(msgbuf) > 0) {
-        modem.checkURC();
+        ublox.pollEvents();
         if(Cloud.sendMessage(msgbuf)) {
           Serial.println("+EVENT:SENT,\"Message Sent\"");
         } else {

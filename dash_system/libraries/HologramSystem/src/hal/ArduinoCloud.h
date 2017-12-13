@@ -31,6 +31,8 @@ class ArduinoCloud : public Cloud, public NetworkEventHandler {
 public:
     void begin(UBlox &ublox, AuthenticationMethod method, event_callback cb);
     virtual void onNetworkEvent(uint32_t id, const void* content);
+    virtual void onPowerUp();
+    virtual void onPowerDown();
 
     static uint32_t getSecondsUTC(const timestamp_tz &ts);
     static bool convertToUTC(rtc_datetime_t &dest, const timestamp_tz &source);

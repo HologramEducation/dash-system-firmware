@@ -22,9 +22,10 @@
 */
 #include "ArduinoUBlox.h"
 
-void ArduinoUBlox::begin(NetworkEventHandler &h, Modem &m, Stream *uart) {
+void ArduinoUBlox::begin(NetworkEventHandler &h, Stream &modem_uart, Stream *uart) {
+    modem.begin(modem_uart, *this);
     this->uart = uart;
-    init(h, m);
+    init(h, modem);
 }
 
 void ArduinoUBlox::wait(uint32_t ms) {

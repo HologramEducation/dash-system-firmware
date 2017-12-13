@@ -33,6 +33,8 @@
 extern "C"{
 #endif // __cplusplus
 
+#include "hal/fsl_device_registers.h"
+
 #define LOW             (0x0)
 #define HIGH            (0x1)
 #define CHANGE          (0x2)
@@ -43,6 +45,7 @@ extern "C"{
 #define OUTPUT          (0x1)
 #define INPUT_PULLUP    (0x2)
 #define INPUT_PULLDOWN  (0x3)
+#define DISABLE         (0x8)
 
 #define PI 3.1415926535897932384626433832795
 #define HALF_PI 1.5707963267948966192313216916398
