@@ -21,7 +21,7 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-#include "UbloxStream.h"
+#include "UBloxStream.h"
 #include "Arduino.h"
 
 UBloxStream::UBloxStream(UBlox *u, const char * filename, unsigned int offset, unsigned int bytes)
