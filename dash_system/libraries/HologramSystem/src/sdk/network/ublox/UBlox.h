@@ -118,6 +118,7 @@ typedef enum {
 
 class UBlox : public Network, public URCReceiver {
 public:
+    UBlox();
     virtual void init(NetworkEventHandler &handler, Modem &m);
     virtual void onURC(const char* urc);
 
@@ -201,8 +202,6 @@ protected:
     bool initModem(int delay_seconds=1);
     bool startswith(const char* a, const char* b);
 
-    void loadModel();
-
     void setHexMode(bool hex);
 
     int nextSocket();
@@ -220,6 +219,8 @@ protected:
     bool uhttp(int profile, int opcode, int value);
 
     Modem *modem;
+
+    bool rn4_series;
 
     ublox_state state;
 

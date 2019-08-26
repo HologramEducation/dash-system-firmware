@@ -26,6 +26,10 @@
 
 #define MAX_READ_LEN 32
 
+UBlox::UBlox() {
+    strncpy(model, "-unknown", UBLOX_MODEL_SIZE);
+}
+
 void UBlox::init(NetworkEventHandler &handler, Modem &m) {
     Network::init(handler);
     modem = &m;
@@ -68,7 +72,6 @@ void UBlox::state_init() {
         modem->command("&K0"); //flow control off
         modem->command("E0"); //echo off
         modem->set("+CMEE", "2"); //set verbose error codes
-        loadModel();
         state = UBLOX_STATE_CHECK_SIM;
     } else {
         if(retries-- <= 0) {
@@ -83,16 +86,31 @@ void UBlox::state_check_sim() {
     if(modem->query("+CPIN", "+CPIN: READY") == MODEM_OK) {
         state = UBLOX_STATE_UNREGISTERED;
         cpin_count = 50;
+
+        rn4_series = false;
+        if(modem->command("+CGMM") == MODEM_OK) {
+            strncpy(model, modem->lastResponse(), UBLOX_MODEL_SIZE);
+            if(strncmp(model, "SARA-R4", 7) == 0 ||
+               strncmp(model, "SARA-N4", 7) == 0) {
+                rn4_series = true;
+            }
+        }
+
         modem->set("+CTZU", "1"); //time/zone sync
         modem->set("+CTZR", "1"); //time/zone URC
         modem->set("+CPMS", "\"ME\",\"ME\",\"ME\"");
         modem->set("+CMGF", "0"); //SMS PDU format
         modem->set("+CNMI", "2,1"); //SMS New Message Indication
-        modem->set("+UPSD", "0,1,\"hologram\"", 3000);
-        modem->set("+UPSD", "0,7,\"0.0.0.0\"", 3000);
-        modem->set("+CREG", "2");
         modem->set("+CGREG", "2");
 
+        if(rn4_series) {
+            modem->set("+CEREG", "2");
+        } else {
+            modem->set("+CREG", "2");
+            modem->set("+UPSD", "0,1,\"hologram\"", 3000);
+            modem->set("+UPSD", "0,7,\"0.0.0.0\"", 3000);
+        }
+        
         for(int i=0; i<UBLOX_SOCKET_COUNT; i++) {
             //get socket states
             switch(_socketState(i)) {
@@ -121,16 +139,27 @@ void UBlox::state_check_sim() {
 void UBlox::state_unregistered() {
     bool reg = false;
     bool greg = false;
+    bool ereg = false;
     int n = 0;
     int stat = 0;
-    if(modem->query("+CREG") == MODEM_OK) {
-        if(sscanf(modem->lastResponse(), "+CREG: %d,%d", &n, &stat) == 2) {
-            reg = (stat == 1) || (stat == 5);
-        } else if(sscanf(modem->lastResponse(), "+CREG: %d", &stat) == 1) {
-            reg = (stat == 1) || (stat == 5);
+    if(rn4_series){
+        if(modem->query("+CEREG") == MODEM_OK) {
+            if(sscanf(modem->lastResponse(), "+CEREG: %d,%d", &n, &stat) == 2) {
+                ereg = (stat == 1) || (stat == 5);
+            } else if(sscanf(modem->lastResponse(), "+CEREG: %d", &stat) == 1) {
+                ereg = (stat == 1) || (stat == 5);
+            }
+        }
+    } else {
+        if(modem->query("+CREG") == MODEM_OK) {
+            if(sscanf(modem->lastResponse(), "+CREG: %d,%d", &n, &stat) == 2) {
+                reg = (stat == 1) || (stat == 5);
+            } else if(sscanf(modem->lastResponse(), "+CREG: %d", &stat) == 1) {
+                reg = (stat == 1) || (stat == 5);
+            }
         }
     }
-    if(!reg) {
+    if(!ereg && !reg) {
         if(modem->query("+CGREG") == MODEM_OK) {
             if(sscanf(modem->lastResponse(), "+CGREG: %d,%d", &n, &stat) == 2) {
                 greg = (stat == 1) || (stat == 5);
@@ -140,12 +169,13 @@ void UBlox::state_unregistered() {
         }
     }
 
-    setRegistered(reg || greg);
+    setRegistered(reg || greg || ereg);
 }
 
 void UBlox::state_registered() {
-    if((modem->set("+UPSND", "0,8", "+UPSND: 0,8,1") == MODEM_OK) &&
-       (modem->set("+UPSND", "0,0") == MODEM_OK)) {
+    if(rn4_series || (
+       (modem->set("+UPSND", "0,8", "+UPSND: 0,8,1") == MODEM_OK) &&
+       (modem->set("+UPSND", "0,0") == MODEM_OK))) {
         state = UBLOX_STATE_CONNECTED;
         eventHandler->onNetworkEvent(UBLOX_EVENT_CONNECTED, NULL);
     } else {
@@ -266,23 +296,12 @@ int UBlox::getICCID(char *iccid) {
     return 0;
 }
 
-void UBlox::loadModel() {
-    if(isInitialized() && modem->command("+CGMM") == MODEM_OK) {
-        strncpy(model, modem->lastResponse(), UBLOX_MODEL_SIZE);
-    }
-}
-
 const char* UBlox::getModel() {
-    if(model == NULL) {
-        loadModel();
-        if(model == NULL)
-            return "-unknown";
-    }
     return model;
 }
 
 bool UBlox::getLocation(int mode, int sensor, int response_type, int timeout, int accuracy, int num_hypothesis) {
-    if(!isConnected()) return false;
+    if(rn4_series || !isConnected()) return false;
     modem->startSet("+ULOC");
     modem->appendSet(mode);
     modem->appendSet(',');
@@ -358,7 +377,7 @@ bool UBlox::deleteSMS(int location) {
     if(!isReady()) return false;
 
     modem->startSet("+CMGD");
-    modem->appendSet(location);
+    modem->appendSet(rn4_series ? location-1 : location);
     return (modem->completeSet() == MODEM_OK);
 }
 
@@ -366,7 +385,7 @@ bool UBlox::readSMS(int location, sms_event &smsread) {
     if(!isReady()) return false;
 
     modem->startSet("+CMGR");
-    modem->appendSet(location);
+    modem->appendSet(rn4_series ? location-1 : location);
     if(modem->completeSet() == MODEM_OK) {
         if(parse_sms_pdu(modem->lastResponse(), smsread)) {
             return true;
@@ -546,6 +565,7 @@ void UBlox::onURC(const char* urc) {
         int addr=0;
         char mem[8];
         if(sscanf(urc, "+CMTI: \"%[^\"]\",%d", mem, &addr) == 2) {
+            if(rn4_series) addr++;
             eventHandler->onNetworkEvent(UBLOX_EVENT_SMS_RECEIVED, &addr);
         }
     } else if(startswith(urc, "+UMWI: ")) {
@@ -567,7 +587,12 @@ void UBlox::onURC(const char* urc) {
         if(sscanf(urc, "+CGREG: %d,", &stat) == 1) {
             setRegistered((stat == 1) || (stat == 5));
         }
-    } else if(startswith(urc, "+UUHTTPCR: ")) {
+    } else if(startswith(urc, "+CEREG: ")) {
+        int stat = 0;
+        if(sscanf(urc, "+CEREG: %d,", &stat) == 1) {
+            setRegistered((stat == 1) || (stat == 5));
+        }
+    }else if(startswith(urc, "+UUHTTPCR: ")) {
         int flag;
         if(sscanf(urc, "+UUHTTPCR: 0,1,%d", &flag) == 1) {
             httpGetFlag = flag;
