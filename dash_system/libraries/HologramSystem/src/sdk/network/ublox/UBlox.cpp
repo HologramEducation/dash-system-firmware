@@ -103,13 +103,14 @@ void UBlox::state_check_sim() {
         modem->set("+CNMI", "2,1"); //SMS New Message Indication
         modem->set("+CGREG", "2");
 
+        
         if(rn4_series) {
             modem->set("+CEREG", "2");
         } else {
             modem->set("+CREG", "2");
-            modem->set("+UPSD", "0,1,\"hologram\"", 3000);
-            modem->set("+UPSD", "0,7,\"0.0.0.0\"", 3000);
         }
+        modem->set("+UPSD", "0,1,\"hologram\"", 3000);
+        modem->set("+UPSD", "0,7,\"0.0.0.0\"", 3000);
         
         for(int i=0; i<UBLOX_SOCKET_COUNT; i++) {
             //get socket states
