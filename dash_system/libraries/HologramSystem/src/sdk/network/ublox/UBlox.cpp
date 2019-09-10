@@ -106,11 +106,13 @@ void UBlox::state_check_sim() {
         
         if(rn4_series) {
             modem->set("+CEREG", "2");
+            modem->set("+CGDCONT", "1,\"IP\",\"hologram\",\"0.0.0.0\",0,0");
         } else {
             modem->set("+CREG", "2");
+            modem->set("+UPSD", "0,1,\"hologram\"", 3000);
+            modem->set("+UPSD", "0,7,\"0.0.0.0\"", 3000);
         }
-        modem->set("+UPSD", "0,1,\"hologram\"", 3000);
-        modem->set("+UPSD", "0,7,\"0.0.0.0\"", 3000);
+        
         
         for(int i=0; i<UBLOX_SOCKET_COUNT; i++) {
             //get socket states
